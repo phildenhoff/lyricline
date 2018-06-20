@@ -1,42 +1,28 @@
 #/usr/local/bin/python3
-import signal
-from bs4 import BeautifulSoup
+import argparse
 import requests
 import sys
-import getpass
-from halo import Halo
+from bs4 import BeautifulSoup
+from lyricline.spinn import Spinner
 from lyricline.constants import ( TOKEN )
 
-def handle_signal(signal, frame):
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, handle_signal)
-
-defaults = {
-    'request': {
-        'token': TOKEN,
-        'base_url': 'https://api.genius.com'
-    },
-    'message': {
-        'search_fail': 'The lyrics for this song were not found!',
-        'wrong_input': 'Wrong number of arguments.\n' \
-                       'Use two parameters to perform a custom search ' \
-                       'or none to get the song currently playing on Spotify.'
-    }
-}
+BASE_URL = 'https://api.genius.com'
 
 def exit():
+    clear_last_line = '\x1b[2K'
+    sys.stdout.write(clear_last_line)
+    sys.stdout.write('\rExiting...\n')
+    sys.stdout.flush()
     sys.exit(0)
 
 def request_song_info(song_title, artist_name):
-    base_url = defaults['request']['base_url']
     headers = {
         'Authorization': 'Bearer {}'.format(TOKEN)
     }
     data = {
         'q': '{} {}'.format(song_title, artist_name)
     }
-    search_url = base_url + '/search'
+    search_url = BASE_URL + '/search'
     response = requests.get(search_url, data=data, headers=headers)
 
     return response
@@ -59,11 +45,18 @@ def lyric_by_verse(lyrics):
         elif line: 
             current_verse.append("\t\t" + line.strip())
 
+def get_search():
+    title = input("Song title: ")
+    artist = input("Artist: ")
+    return (title, artist)
+
 def handle_input(index, number_verses):
     should_exit = False
     new_index = index
-    prompt = "{}/{} [n/p/e]".format(new_index, number_verses)
-    next_step = getpass.getpass(prompt)
+    next_song = None
+
+    prompt = "{}/{} [n/p/e/s] ".format(new_index, number_verses)
+    next_step = input(prompt)
 
     if len(next_step) < 1:
         return new_index, should_exit
@@ -79,21 +72,16 @@ def handle_input(index, number_verses):
         else:
             new_index = new_index - 1
     if next_step.lower()[0] == 'e':
-        exit()
+        raise SystemExit() 
+    if next_step.lower()[0] == 's':
+        next_song = get_search()
 
-    return new_index, should_exit
+    return new_index, should_exit, next_song
 
-def main():
-    if len(sys.argv) < 3:
-        print("Too few arguments. Require song title followed by artist name.")
-        sys.exit(0)
-
-    song_info = sys.argv
-    song_title, artist_name = song_info[1], song_info[2]
-    print('{} by {}'.format(song_title, artist_name))
+def search(song_title, artist_name):
 
     # Search for matches in request response
-    spinner = Halo(text='Loading...', spinner='dots')
+    spinner = Spinner(message='Loading...')
     spinner.start()
     response = request_song_info(song_title, artist_name)
     json = response.json()
@@ -107,18 +95,35 @@ def main():
     # Extract lyrics from URL if song was found
     if not remote_song_info:
         spinner.stop()
-        print(defaults['message']['search_fail'])
-    
+        print("The lyrics for this song were not found!")
+        return get_search() 
+
     song_url = remote_song_info['result']['url']
     lyrics = scrape_song_url(song_url)
-
     spinner.stop()
+
+    full_title = hit['result']['full_title']
+    print('{}'.format(full_title))
+
     should_exit_input = False 
+    last_verse_index = -1
     verse_index = 0
     lyric_array = [ x for x in lyric_by_verse(lyrics) ]
     while not should_exit_input:
-        print(lyric_array[verse_index]) 
-        verse_index, should_exit_input = handle_input(verse_index, len(lyric_array) - 1)
-    
+        if last_verse_index != verse_index:
+            print(lyric_array[verse_index]) 
+        last_verse_index = verse_index
+        verse_index, should_exit_input, next_song = handle_input(verse_index, len(lyric_array) - 1)
+        
+        if next_song:
+           return next_song 
+
+def main():
+    try:
+        song_title, artist_name = get_search()
+        while song_title or artist_name:
+            song_title, artist_name = search(song_title, artist_name)    
+    except SystemExit:
+        exit()
     sys.exit(0)
 
