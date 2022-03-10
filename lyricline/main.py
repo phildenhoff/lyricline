@@ -87,6 +87,11 @@ def search(song_title, artist_name):
     json = response.json()
     remote_song_info = None
 
+    if 'response' not in json:
+        print("Invalid response")
+        with open('log', 'w+') as f:
+           f.write(str(json)) 
+
     for hit in json['response']['hits']:
         if artist_name.lower() in hit['result']['primary_artist']['name'].lower():
             remote_song_info = hit
